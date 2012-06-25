@@ -1,0 +1,9 @@
+SCC = This is a Source Code Control file
+
+[WebConsole.sln]
+SCC_Aux_Path = "\\src\VSS\CSS"
+SCC_Project_Name = "$/css/WebConsole.root/WebConsole/WebConsole_scaleout", NAQFAAAA
+
+[UserTreeLib.csproj]
+SCC_Aux_Path = "\\src\VSS\CSS"
+SCC_Project_Name = "$/css/WebConsole.root/WebConsole/WebConsole_scaleout/UserTreeLib", AFSFAAAA

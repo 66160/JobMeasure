@@ -1,0 +1,149 @@
+﻿using System;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Diagnostics;
+using System.Linq;
+
+namespace UserTreeLib
+{
+    public class CheckedItemViewer : Control
+    {
+        protected enum Mode
+        {
+            Empty,
+            Group,
+            User,
+        }
+
+        #region UserDisplayName
+
+        public string UserDisplayName
+        {
+            get { return (string)GetValue(UserDisplayNameProperty); }
+            set { SetValue(UserDisplayNameProperty, value); }
+        }
+
+        public static readonly DependencyProperty UserDisplayNameProperty =
+            DependencyProperty.Register("UserDisplayName", typeof(string), typeof(CheckedItemViewer),
+            new PropertyMetadata(null));
+
+        #endregion
+
+        #region CheckedItem
+
+        public UserTreeItemModel CheckedItem
+        {
+            get { return (UserTreeItemModel)GetValue(CheckedItemProperty); }
+            set { SetValue(CheckedItemProperty, value); }
+        }
+
+        public static readonly DependencyProperty CheckedItemProperty =
+            DependencyProperty.Register("CheckedItem", typeof(UserTreeItemModel), typeof(CheckedItemViewer),
+            new PropertyMetadata(null, new PropertyChangedCallback(OnCheckedItemChanged)));
+
+        private static void OnCheckedItemChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            ((CheckedItemViewer)d).OnCheckedItemChanged((UserTreeItemModel)e.OldValue, (UserTreeItemModel)e.NewValue);
+        }
+
+        protected virtual void OnCheckedItemChanged(UserTreeItemModel oldValue, UserTreeItemModel newValue)
+        {
+            if (oldValue != newValue)
+                Update();
+        }
+
+        #endregion
+
+        protected Mode GetMode()
+        {
+            if (CheckedItem == null)
+                return Mode.Empty;
+            else if (CheckedItem.IsGroup == true)
+                return Mode.Group;
+            else
+                return Mode.User;
+
+        }
+        protected BitmapImage[] _icons;
+        protected void InitIcons()
+        {
+            _icons = new BitmapImage[]
+            {
+                new BitmapImage(new Uri("/UserTreeLib;component/Images/ViewerEmpty.png", UriKind.Relative)),
+                new BitmapImage(new Uri("/UserTreeLib;component/Images/ViewerGroup.png", UriKind.Relative)),
+                new BitmapImage(new Uri("/UserTreeLib;component/Images/ViewerUser.png", UriKind.Relative)),
+            };
+        }
+
+        private void Update()
+        {
+            if (_icon == null)
+                return;
+
+            Debug.Assert(_icon != null);
+            Debug.Assert(_name != null);
+
+            Mode mode = GetMode();
+
+            _icon.Source = _icons[(int)mode];
+
+            string userDisplayName = null;
+            if (mode == Mode.Empty)
+            {
+                _icon.Width = _icon.Height = 50;
+
+                _name.Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0x96, 0x00, 0x0C));
+                userDisplayName = StrRes.ViewerEmptyUserName;
+            }
+            else
+            {
+                _icon.Width = _icon.Height = 32;
+
+                _name.Foreground = new SolidColorBrush(Colors.Black);
+
+                Debug.Assert(CheckedItem != null, "CheckedItem != null");
+                if (CheckedItem.IsGroup)
+                {
+                    if (CheckedItem.Children != null)
+                    {
+                        int directUserCount = CheckedItem.Children.Count(c => c.IsGroup == false);
+                        userDisplayName = string.Format(StrRes.ViewerGroupName, CheckedItem.Code, directUserCount);
+                    }
+                    else
+                        userDisplayName = string.Format(StrRes.ViewerGroupName, CheckedItem.Code, 0);
+                }
+                else
+                    userDisplayName = CheckedItem.UserDisplayName;
+            }
+
+            if (userDisplayName == StrRes.ViewerEmptyUserName)
+                UserDisplayName = null;
+            else
+                UserDisplayName = userDisplayName;
+
+            _name.Text = userDisplayName;
+        }
+
+        public CheckedItemViewer()
+        {
+            this.DefaultStyleKey = typeof(CheckedItemViewer);
+
+            InitIcons();
+        }
+
+        public override void OnApplyTemplate()
+        {
+            base.OnApplyTemplate();
+
+            _icon = GetTemplateChild("icon") as Image;
+            _name = GetTemplateChild("name") as TextBlock;
+
+            Update();
+        }
+
+        private Image _icon;
+        private TextBlock _name;
+    }
+}

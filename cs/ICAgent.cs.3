@@ -1,0 +1,217 @@
+﻿using System;
+using System.Runtime.Remoting.Channels;
+using System.Runtime.Remoting.Channels.Ipc;
+using CssMgrLib;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web.Security;
+
+namespace UserInfoServiceLib
+{
+    public class ICAgent : IICAgent
+    {
+        protected static object _lock = new object();
+        protected static IpcClientChannel _clientChannel;
+        protected static ICssMgr _remote;
+
+        public void Init()
+        {
+            lock (_lock)
+            {
+                if (_remote == null)
+                {
+                    if (ChannelServices.RegisteredChannels.Length <= 0)
+                    {
+                        IpcClientChannel clientChannel = new IpcClientChannel();
+                        ChannelServices.RegisterChannel(clientChannel, false);
+                        _clientChannel = clientChannel;
+                    }
+
+                    _remote = (ICssMgr)Activator.GetObject(
+                         typeof(ICssMgr), "ipc://remote/server");
+                    if (_remote == null)
+                        throw new Exception("InfoCenterに接続できません。");
+                }
+            }
+        }
+
+        public void Close()
+        {
+            lock (_lock)
+            {
+                ChannelServices.UnregisterChannel(_clientChannel);
+            }
+        }
+
+        private AdminInfo GetAdminInfo(string adminAccount)
+        {
+            if (string.IsNullOrEmpty(adminAccount))
+                throw new ArgumentNullException("管理者アカウント名を指定してください。");
+
+            AdminInfo ret;
+            lock (_lock)
+            {
+                if (_remote == null)
+                    Init();
+
+                ret = _remote.GetAdminInfo(adminAccount);
+            }
+
+            if (ret.AdminID == -1)
+                throw new Exception("InfoCenterから\"" + adminAccount +
+                    "\"の管理者アカウント情報を取得できません。");
+
+            return ret;
+        }
+
+        #region Log
+
+        public PCTStruct[] GetAllPCs()
+        {
+            PCTStruct[] pcs = null;
+            lock (_lock)
+            {
+                if (_remote == null)
+                    Init();
+
+                pcs = _remote.GetPCTDataByFilter(null);
+            }
+            return pcs;
+        }
+
+        public LogOrgStruct[] GetAllLogGroups()
+        {
+            LogOrgStruct[] orgs = null;
+            lock (_lock)
+            {
+                if (_remote == null)
+                    Init();
+
+                orgs = _remote.GetLogOrgDataByFilter(null);
+            }
+            return orgs;
+        }
+
+        public UserDataStruct[] GetAllLogUsers(string adminAccount)
+        {
+            AdminInfo info = GetAdminInfo(adminAccount);
+
+            UserDataStruct[] users = null;
+            lock (_lock)
+            {
+                if (_remote == null)
+                    Init();
+
+                if (info.Authority == 6)    // 全ログ閲覧管理者
+                    users = _remote.GetUserDataLogbyLogAdmin();
+                else
+                {
+                    users = _remote.GetUserDataLogbyAdminId(info.AdminID);
+                    users = (from c in users
+                             where c.belongOrgSeq > 0
+                             select c).ToArray(); // 一般管理者の場合は、未設定ユーザと削除済みユーザの2グループを表示しない。
+                }
+            }
+
+            return users;
+        }
+
+        #endregion
+
+
+        #region Security
+
+        public OrgStruct[] GetAllSecGroups()
+        {
+            OrgStruct[] orgs = null;
+            lock (_lock)
+            {
+                if (_remote == null)
+                    Init();
+
+                orgs = _remote.GetOrgDataByFilter(null);
+            }
+            return orgs;
+        }
+
+        public UserDataStruct[] GetAllSecUsers(string adminAccount)
+        {
+            AdminInfo info = GetAdminInfo(adminAccount);
+
+            UserDataStruct[] users = null;
+            lock (_lock)
+            {
+                if (_remote == null)
+                    Init();
+
+                users = _remote.GetUserDataSecbyAdminId(info.AdminID);
+            }
+
+            return users;
+        }
+
+        public RutStruct[] GetRUTsByLogGroupIDs(int[] logGroupIDs)
+        {
+            List<RutStruct> list = new List<RutStruct>();
+
+            lock (_lock)
+            {
+                if (_remote == null)
+                    Init();
+
+                for (int i = 0; i < logGroupIDs.Length; i++)
+                {
+                    RutStruct[] ruts = _remote.GetRutDataByLogOrgId(logGroupIDs[i]);
+                    if (ruts != null && ruts.Length > 0)
+                        list.AddRange(ruts);
+                }
+            }
+
+            return list.ToArray();
+        }
+
+        //public UserDataStruct[] GetAllSecUsers()
+        //{
+        //    UserDataStruct[] users = null;
+        //    lock (_lock)
+        //    {
+        //        if (_remote == null)
+        //            Init();
+
+        //        users = _remote.GetRutDataByLogOrgId();
+        //    }
+
+        //    return users;
+        //}
+
+        #endregion
+
+
+        public bool IsAdmin(string adminAccount, string password)
+        {
+            AdminsStruct[] admins = null;
+            lock (_lock)
+            {
+                if (_remote == null)
+                    Init();
+
+                admins = _remote.GetAdminsDataByAccount(adminAccount);
+            }
+
+            if (admins == null || admins.Length != 1)
+                return false;
+
+            string pwdmd5 = FormsAuthentication.HashPasswordForStoringInConfigFile(password, "MD5");
+            if (string.Compare(pwdmd5, admins[0].password, StringComparison.InvariantCultureIgnoreCase) == 0)
+                return true;
+            else
+                return false;
+        }
+
+        public int GetAdminRole(string adminAccount)
+        {
+            AdminInfo info = GetAdminInfo(adminAccount);
+            return info.Authority;
+        }
+    }
+}

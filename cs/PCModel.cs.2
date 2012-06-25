@@ -1,0 +1,32 @@
+﻿using System.ComponentModel.DataAnnotations;
+using System;
+
+namespace UserInfoServiceLib
+{
+    public class PCModel
+    {
+        [Key]
+        public int ID { get; set; }
+        public string PC { get; set; }
+        //public string Domain { get; set; }
+
+        //public override bool Equals(object obj)
+        //{
+        //    if (obj == null)
+        //        return false;
+
+        //    var that = (PCModel)obj;
+        //    if ((object)that == null)
+        //        return false;
+
+        //    return string.Compare(this.PC, that.PC, StringComparison.OrdinalIgnoreCase) == 0
+        //        && string.Compare(this.Domain, that.Domain, StringComparison.OrdinalIgnoreCase) == 0;
+        //}
+
+        //public override int GetHashCode()
+        //{
+        //    return this.PC.GetHashCode() ^ this.Domain.GetHashCode();
+        //}
+
+    }
+}

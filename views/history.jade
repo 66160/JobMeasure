@@ -5,14 +5,20 @@ each his in histories
             -var cm = his.cms[i];
             -if (i == his.cms.length - 1)
                 .grpbody
-                    a.comment(href=cm.fileurl) #{cm.comment}
-                    br
+                    a.comment(href=cm.fileurl)
+                        -for(var i in cm.comment) {
+                            #{cm.comment[i]}
+                            br
+                        -}
                     a.cmuser(href='#') #{cm.user}
                     span.cmdate #{cm.date}
             -else
                 .grpbodyinner
-                    a.comment(href=cm.fileurl) #{cm.comment}
-                    br
+                    a.comment(href=cm.fileurl)
+                        -for(var i in cm.comment) {
+                            #{cm.comment[i]}
+                            br
+                        -}
                     a.cmuser(href='#') #{cm.user}
                     span.cmdate #{cm.date}
         -}

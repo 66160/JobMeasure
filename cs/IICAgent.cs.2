@@ -1,0 +1,21 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using CssMgrLib;
+
+namespace UserInfoServiceLib
+{
+    public interface IICAgent
+    {
+        bool IsAdmin(string adminAccount, string password);
+        int GetAdminRole(string adminAccount);
+
+        LogOrgStruct[] GetAllLogGroups();
+        UserDataStruct[] GetAllLogUsers(string adminAccount);
+
+        OrgStruct[] GetAllSecGroups();
+        UserDataStruct[] GetAllSecUsers(string adminAccount);
+        RutStruct[] GetRUTsByLogGroupIDs(int[] logGroupIDs);
+    }
+}

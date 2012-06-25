@@ -1,0 +1,226 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.ServiceModel.DomainServices.Client;
+using DetailsGridCommonLib;
+using DetailsServiceLib;
+using WebConsoleCommonLib;
+
+namespace DetailsProxyLib
+{
+    public class DetailsProxy : IDetailsGridLogProxy
+    {
+        #region IDetailsGridLogProxy メンバー
+
+        public int[] UserIDs { get; set; }
+        public DateTime CurrentDate { get; set; }
+        public int[] EventIDs { get; set; }
+        public int[] EventIDRanges { get; set; }
+        public string[] SIDs { get; set; }
+
+        public bool HasError { get { return Error != null; } }
+        public Exception Error { get; protected set; }
+
+        public void GetParamID(Action<string> callback)
+        {
+            Debug.Assert(callback != null);
+
+            DetailsContext context = new DetailsContext();
+            context.RegisterDetailsParam(UserIDs, CurrentDate, EventIDs, EventIDRanges,
+                c =>
+                {
+                    Debug.WriteLine("{0:HH:mm:ss.fff}>GetParamID", DateTime.Now);
+                    if (ProcessError(c))
+                    {
+                        callback(null);
+                        return;
+                    }
+
+                    callback(c.Value);
+
+                }, null);
+        }
+
+        public void GetValidHours(string paramID, Action<int[]> callback)
+        {
+            Debug.Assert(callback != null);
+
+            DetailsContext context = new DetailsContext();
+            var qValidHours = context.GetValidHours(paramID, ServerSave.Current.ConnectionServerNames,
+                hour =>
+                {
+                    Debug.WriteLine("{0:HH:mm:ss.fff}>GetValidHours", DateTime.Now);
+                    if (ProcessError(hour))
+                    {
+                        callback(null);
+                        return;
+                    }
+
+                    callback(hour.Value);
+                }, null);
+        }
+
+        public void GetLogs(int hour, string paramID, Action<LogN[]> callback)
+        {
+            Debug.Assert(callback != null);
+
+            DetailsContext context = new DetailsContext();
+            var q = context.GetLogsQuery(hour, paramID, ServerSave.Current.ConnectionServerNames);
+            context.Load(q,
+                c =>
+                {
+                    Debug.WriteLine("{0:HH:mm:ss.fff}>GetLogs", DateTime.Now);
+                    if (ProcessError(c))
+                    {
+                        callback(null);
+                        return;
+                    }
+
+                    callback(ToLogNs(c.Entities.ToArray()));
+                }, null);
+        }
+
+        public void GetMailExtra(Action<MailExtraLog[]> callback)
+        {
+            Debug.Assert(callback != null);
+
+            DetailsContext context = new DetailsContext();
+            context.RegisterSIDParam(SIDs,
+                c =>
+                {
+                    if (ProcessError(c))
+                    {
+                        callback(null);
+                        return;
+                    }
+
+                    var q = context.GetMailExtrasQuery(c.Value, ServerSave.Current.ConnectionServerNames);
+                    context.Load(q,
+                        cc =>
+                        {
+                            if (ProcessError(cc))
+                            {
+                                callback(null);
+                                return;
+                            }
+
+                            callback(ToMailExtraLog(cc.Entities.ToArray()));
+                        }, null);
+                }, null);
+        }
+
+        public void GetWebMailExtra(Action<WebMailExtraLog[]> callback)
+        {
+            Debug.Assert(callback != null);
+
+            DetailsContext context = new DetailsContext();
+            context.RegisterSIDParam(SIDs,
+                c =>
+                {
+                    if (ProcessError(c))
+                    {
+                        callback(null);
+                        return;
+                    }
+
+
+                    var q = context.GetWebMailExtrasQuery(c.Value, ServerSave.Current.ConnectionServerNames);
+                    context.Load(q,
+                        cc =>
+                        {
+                            if (ProcessError(cc))
+                            {
+                                callback(null);
+                                return;
+                            }
+
+                            callback(ToWebMailExtraLog(cc.Entities.ToArray()));
+                        }, null);
+                }, null);
+        }
+
+        #endregion
+
+        private MailExtraLog[] ToMailExtraLog(MailExtraModel[] models)
+        {
+            MailExtraLog[] logs = new MailExtraLog[models.Length];
+            for (int i = 0; i < models.Length; i++)
+            {
+                logs[i] = new MailExtraLog
+                {
+                    SID = models[i].SID,
+                    DestAddress = models[i].DestAddress,
+                    Attachment = models[i].Attachment
+                };
+            }
+
+            return logs;
+        }
+
+        private WebMailExtraLog[] ToWebMailExtraLog(WebMailExtraModel[] models)
+        {
+            WebMailExtraLog[] logs = new WebMailExtraLog[models.Length];
+            for (int i = 0; i < models.Length; i++)
+            {
+                logs[i] = new WebMailExtraLog
+                {
+                    SID = models[i].SID,
+                    Subject = models[i].Subject,
+                    SenderMailAddress = models[i].SenderMailAddress,
+                    ReceiverMailAddress = models[i].ReceiverMailAddress,
+                    Attachment = models[i].Attachment
+                };
+            }
+
+            return logs;
+        }
+
+        private LogN[] ToLogNs(LogNModel[] logs)
+        {
+            List<LogN> list = new List<LogN>();
+
+            for (int i = 0; i < logs.Length; i++)
+            {
+                list.Add(ToLogN(logs[i]));
+            }
+
+            return list.ToArray();
+        }
+
+        private LogN ToLogN(LogNModel log)
+        {
+            return new LogN
+            {
+                LogTime = log.Tm,
+
+                EventID = log.Eid,
+                UserID = log.Uid,
+                SID = log.Sid,
+
+                Log1 = log.L1,
+                Log2 = log.L2,
+                Log3 = log.L3,
+                Log4 = log.L4,
+                Log5 = log.L5,
+                Log6 = log.L6,
+                Log7 = log.L7,
+                Log8 = log.L8,
+                Log9 = log.L9,
+            };
+        }
+
+        private bool ProcessError(OperationBase op)
+        {
+            if (op.HasError)
+            {
+                op.MarkErrorAsHandled();
+                Error = op.Error;
+
+                return true;
+            }
+
+            return false;
+        }
+    }
+}

@@ -1,0 +1,199 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.Linq;
+using System.ServiceModel.DomainServices.Hosting;
+using System.ServiceModel.DomainServices.Server;
+using WebConsoleCommonLib.Web;
+using Microsoft.Practices.Unity;
+using System.Text;
+using CssMgrLib;
+using System.Diagnostics;
+
+namespace UserInfoServiceLib
+{
+    [EnableClientAccess()]
+    public class UserSearchService : BaseService
+    {
+        [Dependency]
+        public IICAgent Agent { get; set; }
+
+        public UserSearchService()
+            : base("UserSearchService")
+        {
+            IoC.Current.BuildUp<UserSearchService>(this);
+        }
+
+        public IEnumerable<PCModel> GetAllPCs(string adminName)
+        {
+            var dic = new Dictionary<PCModel, int>();
+            int pcId = 1;
+
+            var logUsers = this.Agent.GetAllLogUsers(adminName);
+            if (logUsers != null
+                && logUsers.Length > 0)
+            {
+                foreach (var usr in logUsers)
+                {
+                    if (usr.accounts == null
+                        || usr.accounts.Length == 0)
+                        continue;
+
+                    foreach (var acc in usr.accounts)
+                    {
+                        if (string.IsNullOrEmpty(acc.pcName)
+                            || string.IsNullOrEmpty(acc.domain))
+                            continue;
+
+                        var pc = new PCModel { ID = pcId++, PC = acc.pcName, Domain = acc.domain };
+                        if (!dic.ContainsKey(pc))
+                        {
+                            dic.Add(pc, 0);
+                        }
+                    }
+                }
+            }
+
+            var list = new List<PCModel>();
+            if (dic.Count > 0)
+                list.AddRange(dic.Keys);
+            return list.ToArray();
+        }
+
+        public IEnumerable<UserModelS> GetSecUsers(string adminName)
+        {
+            var gdic = Agent.GetAllSecGroups().ToDictionary(c => c.seq);
+            var us = Agent.GetAllSecUsers(adminName);
+
+            UserModelS[] ms = new UserModelS[us.Length];
+            for (int i = 0; i < us.Length; i++)
+            {
+                ms[i] = new UserModelS()
+                {
+                    ID = us[i].uid,
+                    Code = us[i].userCode,
+                    Name = us[i].userName,
+                    ParentID = us[i].belongOrgSeq,
+
+                    Account = ConcatAccount(us[i].accounts),
+                    PC = ConcatPC(us[i].accounts),
+                    Domain = ConcatDomain(us[i].accounts),
+                };
+
+                if (gdic.ContainsKey(us[i].belongOrgSeq))
+                {
+                    var g = gdic[us[i].belongOrgSeq];
+                    ms[i].SecurityGroupID = g.seq;
+                    ms[i].SecurityGroup = g.orgCode;
+                }
+            }
+
+            return ms.OrderBy(c => c.Code);
+        }
+
+        public IEnumerable<UserModelS> GetLogUsers(string adminName)
+        {
+            var logGroupDic = Agent.GetAllLogGroups().ToDictionary(c => c.seq);
+
+            var secGroupDic = Agent.GetAllSecGroups().ToDictionary(c => c.seq);
+            var ruts = Agent.GetRUTsByLogGroupIDs(logGroupDic.Keys.ToArray());
+
+            var uid2SecDic = new Dictionary<int, OrgStruct>();
+            for (int i = 0; i < ruts.Length; i++)
+            {
+                RutStruct rut = ruts[i];
+
+                if (secGroupDic.ContainsKey(rut.belongToseq))
+                {
+                    OrgStruct sec = secGroupDic[rut.belongToseq];
+
+                    if (!uid2SecDic.ContainsKey(rut.uid)) // RUTに同じユーザで違うPC、アカウントの記録が複数存在できる。
+                        uid2SecDic.Add(rut.uid, sec);
+                }
+            }
+
+            var logUsers = Agent.GetAllLogUsers(adminName);
+
+            UserModelS[] ms = new UserModelS[logUsers.Length];
+            for (int i = 0; i < logUsers.Length; i++)
+            {
+                ms[i] = new UserModelS()
+                {
+                    ID = logUsers[i].uid,
+                    Code = logUsers[i].userCode,
+                    Name = logUsers[i].userName,
+                    ParentID = logUsers[i].belongOrgSeq,
+
+                    Account = ConcatAccount(logUsers[i].accounts),
+                    PC = ConcatPC(logUsers[i].accounts),
+                    Domain = ConcatDomain(logUsers[i].accounts),
+                };
+
+                if (uid2SecDic.ContainsKey(logUsers[i].uid))
+                {
+                    var secGroup = uid2SecDic[logUsers[i].uid];
+                    ms[i].SecurityGroupID = secGroup.belongToseq;
+                    ms[i].SecurityGroup = secGroup.orgCode;
+                }
+
+                if (logGroupDic.ContainsKey(logUsers[i].belongOrgSeq))
+                {
+                    var logGroup = logGroupDic[logUsers[i].belongOrgSeq];
+                    ms[i].LogGroupID = logGroup.seq;
+                    ms[i].LogGroup = logGroup.orgCode;
+                    ms[i].LogGroupName = logGroup.orgName;
+                }
+            }
+
+            return ms.OrderBy(c => c.Code);
+        }
+
+        protected string ConcatAccount(AccountDataStruct[] accounts)
+        {
+            if (accounts == null || accounts.Length == 0)
+                return null;
+
+            if (accounts.Length == 1)
+                return accounts[0].account;
+
+            ConcatStringBuilder csb = new ConcatStringBuilder();
+            foreach (var ac in accounts)
+                csb.Append(ac.account);
+
+            return csb.ToString();
+        }
+
+        protected string ConcatPC(AccountDataStruct[] accounts)
+        {
+            if (accounts == null || accounts.Length == 0)
+                return null;
+
+            if (accounts.Length == 1)
+                return accounts[0].pcName;
+
+            ConcatStringBuilder csb = new ConcatStringBuilder();
+            foreach (var ac in accounts)
+                csb.Append(ac.pcName);
+
+            return csb.ToString();
+        }
+
+        protected string ConcatDomain(AccountDataStruct[] accounts)
+        {
+            if (accounts == null || accounts.Length == 0)
+                return null;
+
+            if (accounts.Length == 1)
+                return accounts[0].domain;
+
+            ConcatStringBuilder csb = new ConcatStringBuilder();
+            foreach (var ac in accounts)
+                csb.Append(ac.domain);
+
+            return csb.ToString();
+        }
+    }
+}
+
+

@@ -40,7 +40,8 @@ app.get('/cs/*', function(req, res) {
 	var file = req.params[0];
 	readCs(file, function(p, cs) {
 		if (cs != null) {
-			res.render('showcs', {title: file, cs: cs});
+			var filename = path.basename(file);
+			res.render('showcs', {title: filename, cs: cs, his: '/history/' + file});
 		} else {
 			console.log("Cannot find " + p);
 			res.end("Cannot find " + file);
@@ -102,9 +103,9 @@ app.get('/history', function(req, res) {
 });
 
 app.get('/history/*', function(req, res) {
-	sshis(req.params, function(result) {
+	sshis(req.params[0], function(result) {
 		parseHistory(result, function(items) {
-			var his = combineHistory('/diff/' + req.params, items);
+			var his = combineHistory('/diff/' + req.params[0], items);
 
 			res.render('history', {
 				title: '履歴', 
@@ -166,20 +167,22 @@ function combineHistory(base, items) {
 		dicTimeComment;
 
 	items.forEach(function(item) {
-		var date = item.date;
-		var dtkey = date.getFullYear() + '/' + (date.getMonth() + 1) + '/' + date.getDate();
-		if (dtkey in dicDate)
-			dicTimeComment = dicDate[dtkey];
-		else {
-			dicTimeComment = {};
-			dicDate[dtkey] = dicTimeComment;
-		}
+		if (!item.isauto) {
+			var date = item.date;
+			var dtkey = date.getFullYear() + '/' + (date.getMonth() + 1) + '/' + date.getDate();
+			if (dtkey in dicDate)
+				dicTimeComment = dicDate[dtkey];
+			else {
+				dicTimeComment = {};
+				dicDate[dtkey] = dicTimeComment;
+			}
 
-		var tuckey = date.getTime() + '|' + item.user + '|' +  item.comment;
-		if (tuckey in dicTimeComment)
-			dicTimeComment[tuckey].push(item);
-		else
-			dicTimeComment[tuckey] = [item];
+			var tuckey = date.getTime() + '|' + item.user + '|' +  item.comment.join('\n');
+			if (tuckey in dicTimeComment)
+				dicTimeComment[tuckey].push(item);
+			else
+				dicTimeComment[tuckey] = [item];
+		}
 	});
 
 	var histories = [];
@@ -194,13 +197,41 @@ function getComments(base, dictuc) {
 	for(var tuc in dictuc) {
 		var items = dictuc[tuc],
 			item = items[0];
-		cms.push({ comment: item.comment || 'なし', user: item.user, date: item.date, 
+
+		if (noComment(item.comment)) {
+			item.comment = [];
+			item.comment.push('なし');
+		}
+		cms.push({ 
+			comment: item.comment, 
+			user: item.user, 
+			date: item.date, 
 			fileurl: getFileUrl(base, items) });
 	}
 	return cms;
 }
 
+function noComment(comment) {
+	if (comment) {
+		if (comment.length > 0) {
+			for(var i in comment) {
+				var cm = comment[i];
+				if (cm)
+					return false;
+			}
+		}
+	}
+
+	return true;
+}
+
 function getFileUrl(base, items) {
+	if (items.length == 1) {
+		var it = items[0];
+		if (!it.filename)
+			return base + ':' + it.version; 
+	}
+	
 	var url = base + '/';
 	for(var i in items) {
 		var it = items[i];
@@ -224,11 +255,11 @@ function parseHistory(content, callback) {
 
 		var version = getBetween(line, '*****************', '*****************');
 		if (version) {
-/*
 			item = createHistoryItem();
+			item.isauto = true;
 			item.version = parseVersion(version);
 			items.push(item);
-*/
+
 			isfile = false;
 			isver = true;
 			continue;
@@ -239,6 +270,7 @@ function parseHistory(content, callback) {
 			item = createHistoryItem();
 			item.filename = filename;
 			items.push(item);
+
 			isfile = true;
 			isver = false;
 			continue;
@@ -246,24 +278,24 @@ function parseHistory(content, callback) {
 
 		if (isfile) 
 			parseFileBlock(item, line);
-/*
+
 		if (isver)
 			parseVersionBlock(item, line);
-*/
+
 	}
 	callback(items);
 }
 
 function parseFileBlock(item, line) {
-	if (parseFileBlock.iscmt && line)
-		item.comment += line;
+	if (item.comment && line)
+		item.comment.push(line);
 
 	if (startWith(line, 'ユーザー:'))
 		parseUserAndDate(item, line);
 
 	if (startWith(line, 'コメント:')) {
-		item.comment = getAfterAndTrim(line, 'コメント:');
-		parseFileBlock.iscmt = true;
+		item.comment = [];
+		item.comment.push(getAfterAndTrim(line, 'コメント:'));
 	}
 
 	if (startWith(line, 'バージョン')) {
@@ -273,19 +305,21 @@ function parseFileBlock(item, line) {
 			item.version = num;	
 	}
 }
-/*
+
 function parseVersionBlock(item, line) {
-	var row = 0;
-	switch(++row) {
-		case 1:
-			parseUserAndDate(item, line);
-			break;
-		case 2:
-			item.filename = parseVersionFilename(line);
-			break;
+	if (item.comment && line)
+		item.comment.push(line);
+
+	if (startWith(line, 'ユーザー:'))
+		parseUserAndDate(item, line);
+
+	if (startWith(line, 'コメント:')) {
+		item.isauto = false;
+		item.comment = [];
+		item.comment.push(getAfterAndTrim(line, 'コメント:'));
 	}
 }
-*/
+
 function getAfterAndTrim(str, keyword) {
 	var valstr = str.substring(keyword.length);
 	return jq.trim(valstr);
@@ -297,7 +331,7 @@ function startWith(str, keyword) {
 }	
 
 function createHistoryItem() {
-	return { filename: null, version: 0, user: null, date: null, comment: null };
+	return { filename: null, version: 0, user: null, date: null, comment:null, isauto: false };
 }
 
 function parseVersionFilename(line) {
