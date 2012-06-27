@@ -55,8 +55,25 @@ namespace UserTreeLib
             set { SetValue(CheckedItemProperty, value); }
         }
 
-        public static readonly DependencyProperty CheckedItemProperty =
-            DependencyProperty.Register("CheckedItem", typeof(UserTreeItemModel), typeof(UserTree), new PropertyMetadata(null));
+        public static readonly DependencyProperty CheckedItemProperty = 
+            DependencyProperty.Register("CheckedItem", typeof(UserTreeItemModel), typeof(UserTree),
+            new PropertyMetadata(null, OnCheckedItemChanged));
+
+        protected static void OnCheckedItemChanged(DependencyObject o, DependencyPropertyChangedEventArgs e)
+        {
+            ((UserTree)o).OnCheckedItemChanged((UserTreeItemModel)e.OldValue, (UserTreeItemModel)e.NewValue);
+        }
+
+        protected void OnCheckedItemChanged(UserTreeItemModel oldValue, UserTreeItemModel newValue)
+        {
+            if (newValue == null)
+                if (oldValue != null)
+                {
+                    UserTreeItemModel.IsSilent = true;
+                    oldValue.IsUserChecked = false;
+                    UserTreeItemModel.IsSilent = false;
+                }
+        }
 
         #endregion
 

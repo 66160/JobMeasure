@@ -1,0 +1,20 @@
+script
+    $(function() {
+        $("#clearusers").click(function() {
+            $.get("/debug/clearusers");
+        });
+    });
+
+#clearusers
+    | clear users
+
+form(action='/register', method='post')
+    div OK
+    input(type='text', name='user', value='')
+    br
+    input(type='password', name='pwd', value='')
+    br
+    input(type='password', name='pwd2', value='')
+    br
+    input(type='submit', value='Register')
+

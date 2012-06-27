@@ -8,11 +8,17 @@ var express = require('express')
 var app = module.exports = express.createServer();
 var fs = require('fs'),
 	path = require('path'),
-	jq = require('jquery');
+	jq = require('jquery'),
+	mongo = require('mongodb'),
+	server = new mongo.Server('localhost', 27017, {auto_reconnect: true}),
+	db = new mongo.Db('css', server);
 
 // Configuration
 
 app.configure(function(){
+  app.use(express.cookieParser());
+  app.use(express.session({ secret: "ryu" }));
+
   app.set('views', __dirname + '/views');
   app.set('view engine', 'jade');
   app.use(express.bodyParser());
@@ -32,7 +38,69 @@ app.configure('production', function(){
 // Routes
 
 app.get('/', function(req, res) {
-	res.redirect('/list/css');
+	res.redirect('/login');
+});
+
+app.get('/register', function(req, res) {
+	res.render('register', {title: 'Register'});
+});
+
+app.post('/register', function(req, res) {
+	var user = req.body.user,
+		pwd = req.body.pwd;
+	
+	openColc('users', function(err, col) {
+		if (hasErr(err)) return;
+
+		col.find({_id: user}).toArray(function(err, item) {
+			if (hasErr(err)) return;
+
+			if (item.length == 0) {
+				col.insert({_id: user, pwd: pwd});
+				req.session.user_id = user;
+				res.redirect('/projs');
+			}
+			else
+				res.redirect('/register');
+		});
+	});
+});
+
+app.get('/debug/clearusers', function(req, res) {
+	openColc('users', function(err, col) {
+		if (hasErr(err)) return;
+		console.log('clear users');
+		col.remove({});
+		res.end('users cleared');
+	});
+});
+
+app.get('/login', function(req, res) {
+	res.render('login', {title: 'login'});
+});
+
+app.post('/login', function(req, res) {
+	var user = req.body.user,
+		pwd = req.body.pwd;
+	
+	openColc('users', function(err, col) {
+		if (hasErr(err)) return;
+
+		col.find({_id: user}).toArray(function(err, item) {
+			if (hasErr(err)) return;
+
+			if (item.length == 1 && item[0].pwd == pwd) {
+				req.session.auth = true;
+				res.redirect('/projs');
+			}
+			else
+				res.redirect('/login');
+		});
+	});
+});
+
+app.get('/projs', function(req, res) {
+	res.end('This is project page.');
 });
 
 app.get('/cs/*', function(req, res) {
@@ -62,12 +130,33 @@ app.get('/comp/:file1/:file2', function(req, res) {
 		});
 	});
 });
-
 app.get('/diff/*', function(req, res) {
-	var files = parseFiles(req.params[0]);
-	diffFile(files, 0, [], function(diffs) {
-		res.render('showdiff', {title: 'diff', diffs: diffs});
-	});
+	var file = req.params[0];
+	var files = parseFiles(file);
+	if (files.length > 1) {
+		diffFile(files, 0, [], function(diffs) {
+			res.render('showdiff', {
+				title: 'diff', 
+				diffs: diffs, 
+			});
+		});
+	} else {
+		openColc('histories', function(err, col) {
+			if (hasErr(err)) return;
+
+			col.find({_id: removeLastVer(file)}).toArray(function(err, item) {
+				if (hasErr(err)) return;
+
+				diffFile(files, 0, [], function(diffs) {
+					res.render('showdiff', {
+						title: 'diff', 
+						diffs: diffs, 
+						his: item[0].his
+					});
+				});
+			});
+		});
+	}
 });
 
 app.get('/diffcs/*', function(req, res) {
@@ -102,23 +191,108 @@ app.get('/history', function(req, res) {
 });
 
 app.get('/history/*', function(req, res) {
-	sshis(req.params[0], function(result) {
-		parseHistory(result, function(items) {
-			var his = combineHistory('/diff/' + req.params[0], items);
+	var file = req.params[0];
+	openColc('histories', function(err, col) {
+		if (hasErr(err)) return;
 
-			res.render('history', {
-				title: '履歴', 
-				histories: his
+		col.find({_id: file}).toArray(function(err, item) {
+			if (hasErr(err)) return;
+
+			if (item.length == 1)
+				renderHis(res, item[0].his);
+			else {
+				sshis(file, function(result) {
+					parseHistory(result, function(items) {
+						var his = combineHistory('/diff/' + file, items);
+						col.insert({_id:file, his: his});
+						renderHis(res, his);
+					});
+				});
+			}
+		});
+	});
+});
+
+app.get('/db', function(req, res) {
+	var Server = mongo.Server,
+		Db = mongo.Db;
+
+	var server = new Server('localhost', 27017, {auto_reconnect: true});
+	var db = new Db('exampleDb', server);
+	db.open(function(err, db) {
+		if (err) {
+			console.log(err);
+			return;
+		}
+
+		db.collection('test', function(err, col) {
+			var docs = [{mykey:1}, {mykey:2}, {mykey:3}];
+			col.insert(docs, {safe:true}, function(err, result) {
+				var stream = col.find().streamRecords();
+				stream.on('data', function(item){
+					res.write(item.mykey.toString());
+				});
+				stream.on('end', function() {
+					res.end();
+				});
 			});
 		});
 	});
 });
+
 
 app.listen(3000, function() {
   console.log("Express server listening on port %d in %s mode", app.address().port, app.settings.env);
 });
 
 // lib
+
+function login(user, pwd) {
+	
+}
+
+function removeLastVer(file) {
+	var pos = file.lastIndexOf(':');
+	if (pos != -1)
+		return file.substring(0, pos);
+	else
+		return file;
+}
+
+function renderHis(res, his) {
+	res.render('history', {
+		title: '履歴', 
+		histories: his
+	});
+}
+
+function openColc(colc, callback) {
+	openDb(function(err, db) {
+		if (err)
+			callback(err, null);
+		else
+			db.collection(colc, function(err, colc) {
+				callback(err, colc);
+			});
+	});
+}
+
+function openDb(callback) {
+	if (db._state == 'connected')
+		callback(null, db);
+	else
+		db.open(function(err, db) { 
+			callback(err, db);
+	   	});
+}
+
+function hasErr(err) {
+	if (err) {
+		console.log(err);
+		return true;
+	}
+	return false;
+}
 
 function diffFile(files, id, diffs, callback) {
 	var file = files[id];
@@ -138,7 +312,7 @@ function createDiff(file, result) {
 }
 
 function parseFiles(fileurl) {
-console.log(fileurl);
+	console.log(fileurl);
 	var files = [],
 		file,
 		folder = path.dirname(fileurl),
@@ -188,6 +362,7 @@ function combineHistory(base, items) {
 	for(var date in dicDate) {
 		histories.push({ date: date, cms: getComments(base, dicDate[date]) });
 	}
+	console.log('combineHistory> histories.lenght=' + histories.length);
 	return histories;
 }
 
@@ -240,7 +415,6 @@ function getFileUrl(base, items) {
 	}
 	return url;
 }
-
 
 function parseHistory(content, callback) {
 	var lines = content.split('\r\n'),
